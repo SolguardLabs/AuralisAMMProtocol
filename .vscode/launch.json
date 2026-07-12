@@ -1,0 +1,20 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Auralis: Debug focused test",
+      "type": "lldb",
+      "request": "custom",
+      "targetCreateCommands": ["target create forge"],
+      "processCreateCommands": ["run test -vvvv --match-test ${input:testName}"]
+    }
+  ],
+  "inputs": [
+    {
+      "id": "testName",
+      "type": "promptString",
+      "description": "Foundry test name",
+      "default": "testInitialLiquidity"
+    }
+  ]
+}

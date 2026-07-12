@@ -1,0 +1,9 @@
+{
+  "recommendations": [
+    "NomicFoundation.hardhat-solidity",
+    "tintinweb.solidity-visual-auditor",
+    "eamodio.gitlens",
+    "github.vscode-github-actions"
+  ]
+}
+
