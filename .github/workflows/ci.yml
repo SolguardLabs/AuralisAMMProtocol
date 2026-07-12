@@ -15,7 +15,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
