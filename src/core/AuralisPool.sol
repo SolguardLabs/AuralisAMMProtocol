@@ -7,6 +7,7 @@ import { IAuralisOracle } from "../interfaces/IAuralisOracle.sol";
 import { IAuralisPool } from "../interfaces/IAuralisPool.sol";
 import { AuralisMath } from "../libraries/AuralisMath.sol";
 import { FullMath } from "../libraries/FullMath.sol";
+import { LiquiditySettlement } from "../libraries/LiquiditySettlement.sol";
 import { ReserveMath } from "../libraries/ReserveMath.sol";
 import { SafeTransferLib } from "../libraries/SafeTransferLib.sol";
 import { AuralisLPToken } from "../tokens/AuralisLPToken.sol";
@@ -26,7 +27,7 @@ import {
     AuralisZeroAddress,
     AuralisZeroAmount
 } from "../types/AuralisErrors.sol";
-import { AuralisConstants, PoolRiskConfig } from "../types/AuralisTypes.sol";
+import { AuralisConstants, BurnQuote, PoolRiskConfig } from "../types/AuralisTypes.sol";
 import { ReentrancyGuard } from "../utils/ReentrancyGuard.sol";
 
 /// @dev Risk-controller surface consumed by individual pools.
@@ -236,24 +237,20 @@ contract AuralisPool is IAuralisPool, AuralisLPToken, ReentrancyGuard {
         address owner,
         uint256 liquidity
     ) public view override returns (uint256 amount0, uint256 amount1) {
+        BurnQuote memory quote = previewBurnBreakdown(owner, liquidity);
+        return (quote.amount0, quote.amount1);
+    }
+
+    /// @inheritdoc IAuralisPool
+    function previewBurnBreakdown(
+        address owner,
+        uint256 liquidity
+    ) public view override returns (BurnQuote memory quote) {
         if (owner == address(0)) revert AuralisZeroAddress();
         if (liquidity == 0 || liquidity > balanceOf[owner]) {
             revert AuralisInsufficientLiquidity();
         }
-
-        uint256 supply = totalSupply;
-        bool closesPosition = liquidity == balanceOf[owner];
-        if (closesPosition) {
-            (uint112 active0, uint112 active1) = activeReserves();
-            (amount0, amount1) = ReserveMath.withdrawalAmounts(liquidity, supply, active0, active1);
-            (uint256 accrued0, uint256 accrued1) = accruedFees(owner);
-            amount0 += AuralisMath.min(accrued0, _pendingLPFee0);
-            amount1 += AuralisMath.min(accrued1, _pendingLPFee1);
-        } else {
-            (uint256 owned0, uint256 owned1) =
-                ReserveMath.lpOwnedBalances(_reserve0, _reserve1, _feeBalances());
-            (amount0, amount1) = ReserveMath.withdrawalAmounts(liquidity, supply, owned0, owned1);
-        }
+        quote = _redemptionQuote(owner, liquidity);
     }
 
     /// @inheritdoc IAuralisPool
@@ -313,8 +310,9 @@ contract AuralisPool is IAuralisPool, AuralisLPToken, ReentrancyGuard {
         if (msg.sender != owner) _spendAllowance(owner, msg.sender, liquidity);
 
         _accrueAccount(owner);
-        bool closesPosition = liquidity == balanceOf[owner];
-        (amount0, amount1) = previewBurn(owner, liquidity);
+        BurnQuote memory quote = _redemptionQuote(owner, liquidity);
+        amount0 = quote.amount0;
+        amount1 = quote.amount1;
         if (amount0 < amount0Minimum) {
             revert AuralisAmount0BelowMinimum(amount0Minimum, amount0);
         }
@@ -322,11 +320,8 @@ contract AuralisPool is IAuralisPool, AuralisLPToken, ReentrancyGuard {
             revert AuralisAmount1BelowMinimum(amount1Minimum, amount1);
         }
 
-        if (closesPosition) {
-            (uint112 active0, uint112 active1) = activeReserves();
-            (uint256 principal0, uint256 principal1) =
-                ReserveMath.withdrawalAmounts(liquidity, totalSupply, active0, active1);
-            _realizeAccountFees(owner, amount0 - principal0, amount1 - principal1);
+        if (quote.realizedFee0 != 0 || quote.realizedFee1 != 0) {
+            _realizeAccountFees(owner, quote.realizedFee0, quote.realizedFee1);
         }
 
         _burn(owner, liquidity);
@@ -577,6 +572,36 @@ contract AuralisPool is IAuralisPool, AuralisLPToken, ReentrancyGuard {
             _pendingLPFee0 -= AuralisMath.toUint128(amount0);
             _pendingLPFee1 -= AuralisMath.toUint128(amount1);
         }
+    }
+
+    function _redemptionQuote(
+        address owner,
+        uint256 liquidity
+    ) internal view returns (BurnQuote memory result) {
+        (uint112 active0, uint112 active1) = activeReserves();
+        (uint256 accrued0, uint256 accrued1) = accruedFees(owner);
+        LiquiditySettlement.Context memory context = LiquiditySettlement.Context({
+            liquidity: liquidity,
+            totalSupply: totalSupply,
+            ownerBalance: balanceOf[owner],
+            grossReserve0: _reserve0,
+            grossReserve1: _reserve1,
+            activeReserve0: active0,
+            activeReserve1: active1,
+            accruedFee0: accrued0,
+            accruedFee1: accrued1,
+            feeBalances: _feeBalances()
+        });
+        LiquiditySettlement.Quote memory quote = LiquiditySettlement.quote(context);
+        result = BurnQuote({
+            amount0: quote.amount0,
+            amount1: quote.amount1,
+            principal0: quote.principal0,
+            principal1: quote.principal1,
+            realizedFee0: quote.realizedFee0,
+            realizedFee1: quote.realizedFee1,
+            closesPosition: quote.closesPosition
+        });
     }
 
     function _pullExact(

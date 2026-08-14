@@ -27,6 +27,19 @@
       "command": "bash scripts/ci.sh",
       "dependsOrder": "sequence",
       "problemMatcher": []
+    },
+    {
+      "label": "Auralis: Client Test",
+      "type": "shell",
+      "command": "npm run test:client",
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "Auralis: Client Typecheck",
+      "type": "shell",
+      "command": "npm run typecheck",
+      "problemMatcher": "$tsc"
     }
   ]
 }

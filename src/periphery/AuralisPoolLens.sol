@@ -109,23 +109,7 @@ contract AuralisPoolLens {
         address owner,
         uint256 liquidity
     ) external view returns (BurnQuote memory quote) {
-        IAuralisPool pool = _canonicalPool(poolAddress);
-        (quote.amount0, quote.amount1) = pool.previewBurn(owner, liquidity);
-        if (liquidity == IERC20Minimal(poolAddress).balanceOf(owner)) {
-            (uint112 active0, uint112 active1) = pool.activeReserves();
-            uint256 supply = IERC20Minimal(poolAddress).totalSupply();
-            quote.principal0 = FullMath.mulDiv(liquidity, active0, supply);
-            quote.principal1 = FullMath.mulDiv(liquidity, active1, supply);
-            if (quote.amount0 > quote.principal0) {
-                quote.realizedFee0 = quote.amount0 - quote.principal0;
-            }
-            if (quote.amount1 > quote.principal1) {
-                quote.realizedFee1 = quote.amount1 - quote.principal1;
-            }
-        } else {
-            quote.principal0 = quote.amount0;
-            quote.principal1 = quote.amount1;
-        }
+        quote = _canonicalPool(poolAddress).previewBurnBreakdown(owner, liquidity);
     }
 
     function quoteSwap(

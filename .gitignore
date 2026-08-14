@@ -6,6 +6,7 @@
 
 # Cobertura y perfiles
 /coverage/
+/dist/
 /lcov.info
 
 # Dependencias y herramientas auxiliares
@@ -21,7 +22,4 @@
 # Sistema operativo
 .DS_Store
 Thumbs.db
-
-# Documentación interna
-vulnerability.md
 

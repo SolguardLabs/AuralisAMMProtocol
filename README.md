@@ -1,83 +1,144 @@
 # Auralis AMM Protocol
 
-![banner](./assets/banner.png)
+![Auralis AMM Protocol](./assets/banner.png)
 
-Auralis es un protocolo AMM de producto constante para pools de dos activos. La
-implementacion separa el principal utilizable del pool, las comisiones devengadas por los
-proveedores de liquidez y las comisiones asignadas al protocolo. Sobre esa base ofrece
-participaciones ERC-20, swaps con fee adaptativa, observaciones de precio y controles contra
-desbalances extremos.
+[![CI](https://github.com/SolguardLabs/AuralisAMMProtocol/actions/workflows/ci.yml/badge.svg)](https://github.com/SolguardLabs/AuralisAMMProtocol/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/SolguardLabs/AuralisAMMProtocol?display_name=tag)](https://github.com/SolguardLabs/AuralisAMMProtocol/releases)
+[![Solidity](https://img.shields.io/badge/Solidity-0.8.26-363636)](https://soliditylang.org/)
+[![License](https://img.shields.io/badge/license-MIT-EDEDED)](./LICENSE)
 
-El repositorio esta pensado como una base autocontenida para revision de contratos, pruebas
-economicas y simulacion local con Foundry. No requiere servicios externos para compilar o
-ejecutar la suite.
+Auralis es una infraestructura AMM de producto constante para mercados de dos activos. El
+protocolo combina pools deterministas, participaciones ERC-20, tarifas adaptativas, acumulación
+de precio, límites de composición y telemetría operativa en una superficie autocontenida.
 
-## Componentes Principales
+La implementación está escrita en Solidity `0.8.26`, no depende de paquetes Solidity externos
+y utiliza Foundry para compilación, pruebas, simulación y despliegues reproducibles.
 
-- `AuralisFactory`: despliegue determinista y registro canonico de pools por par.
-- `AuralisPool`: custodia, swaps, emision y quema de participaciones y contabilidad de fees.
-- `AuralisRouter`: entradas con deadlines, limites de slippage y rutas de varios saltos.
-- `DynamicFeeController`: fee base con ajustes por tamano, desbalance y volatilidad.
-- `AuralisOracle`: acumulador circular de precios y consultas TWAP.
-- `ImbalanceGuard`: bandas de reserva normalizadas respecto al ratio de apertura.
-- `AuralisPoolLens`: vistas agregadas para integradores, simuladores e interfaces.
+## Capacidades
 
-## Modelo Economico
+- Pools canónicos desplegados mediante `CREATE2` para pares no ordenados.
+- Swaps `exact-input` con protección de slippage y deadlines.
+- Tarifas dinámicas por tamaño, desbalance y volatilidad observada.
+- Participaciones ERC-20 con permisos EIP-2612.
+- Índices Q128 para distribuir comisiones entre proveedores de liquidez.
+- Oracle TWAP con acumuladores Q112 y buffer circular de 64 observaciones.
+- Router de uno o varios saltos con verificación de pools canónicos.
+- Guardian de emergencia limitado a acciones de pausa.
+- Lens para snapshots, cotizaciones y posiciones de fee.
+- Monitor operativo con señales de reservas, contabilidad, riesgo y frescura del oracle.
+- Cliente TypeScript tipado y desacoplado del proveedor RPC.
 
-Cada pool mantiene tres capas contables por activo:
+## Arquitectura
 
-1. Reserva bruta custodiada por el contrato.
-2. Obligaciones por comisiones de LP y comisiones de protocolo.
-3. Reserva activa utilizada por el invariante de producto constante.
+```mermaid
+flowchart LR
+    subgraph Integración
+        UI["Aplicación o keeper"]
+        SDK["AuralisClient"]
+    end
 
-Las participaciones representan una fraccion del principal activo. Las comisiones de LP se
-distribuyen mediante indices acumulativos por share y checkpoints por cuenta, de modo que los
-derechos ya devengados permanecen asociados a su titular cuando se transfieren participaciones.
+    subgraph Periferia
+        Router["AuralisRouter"]
+        Lens["AuralisPoolLens"]
+        Monitor["AuralisHealthMonitor"]
+    end
 
-La fee de cada swap se expresa en partes por millon. El controlador combina una base con
-recargos acotados por tamano de orden, desviacion del ratio ancla y volatilidad observada. El
-pool valida ademas que la operacion proyectada permanezca dentro de sus bandas de reserva.
+    subgraph Núcleo
+        Factory["AuralisFactory"]
+        Pool["AuralisPool"]
+        LP["AuralisLPToken"]
+    end
 
-## Requisitos
+    subgraph Política
+        Fees["DynamicFeeController"]
+        Guard["ImbalanceGuard"]
+        Oracle["AuralisOracle"]
+    end
 
-- Foundry estable con Solidity `0.8.26`.
-- Bash para ejecutar los scripts de validacion.
+    UI --> SDK
+    SDK --> Lens
+    SDK --> Monitor
+    UI --> Router
+    Router --> Pool
+    Factory --> Pool
+    Pool --> LP
+    Pool --> Fees
+    Pool --> Guard
+    Pool --> Oracle
+    Lens -. lectura .-> Pool
+    Monitor -. lectura .-> Pool
+    Monitor -. lectura .-> Guard
+    Monitor -. lectura .-> Oracle
+```
 
-Comprobar la instalacion:
+La factory es el registro canónico. Router, lens y monitor rechazan contratos que no coincidan
+con el par registrado, aunque expongan una interfaz compatible.
+
+## Modelo económico
+
+Cada activo mantiene tres dominios contables:
+
+```text
+B_i = saldo bruto custodiado
+F_i = obligación pendiente frente a LPs
+P_i = comisión propiedad del protocolo
+R_i = reserva activa de la curva
+
+R_i = B_i - F_i - P_i
+```
+
+Las reservas activas alimentan la curva de producto constante:
+
+```text
+k = R_in * R_out
+amountOut = floor(netAmountIn * R_out / (R_in + netAmountIn))
+```
+
+La tarifa total se expresa en partes por millón:
+
+```text
+feePpm = clamp(base + size + imbalance + volatility, minimum, maximum)
+totalFee = floor(amountIn * feePpm / 1_000_000)
+protocolFee = floor(totalFee * protocolSharePpm / 1_000_000)
+lpFee = totalFee - protocolFee
+```
+
+La emisión de shares usa el menor aporte proporcional y la liquidación descompone cada salida
+en principal y fee realizada. Los detalles completos y ejemplos numéricos están en
+[docs/accounting.md](./docs/accounting.md).
+
+## Inicio rápido
+
+### Requisitos
+
+- Foundry estable.
+- Node.js `22` o posterior.
+- Bash para los scripts reproducibles.
 
 ```bash
 forge --version
+node --version
+npm --version
 ```
 
-## Compilacion
+### Instalación y validación
 
 ```bash
-forge build
-```
-
-Foundry descargara el compilador configurado la primera vez que sea necesario.
-
-## Pruebas
-
-Ejecutar la suite publica:
-
-```bash
-forge test
-```
-
-Ejecutar con trazas detalladas:
-
-```bash
-forge test -vvv
-```
-
-Ejecutar la validacion equivalente a CI:
-
-```bash
+git clone https://github.com/SolguardLabs/AuralisAMMProtocol.git
+cd AuralisAMMProtocol
+npm ci
 bash scripts/ci.sh
 ```
 
-## Despliegue Local
+Comandos individuales:
+
+```bash
+forge build --sizes --deny warnings
+FOUNDRY_PROFILE=ci forge test --deny warnings
+npm run ci:client
+```
+
+## Ejecución local
 
 Iniciar una red de desarrollo:
 
@@ -85,7 +146,13 @@ Iniciar una red de desarrollo:
 anvil
 ```
 
-En otra terminal, desplegar los componentes base:
+Preparar las variables:
+
+```bash
+cp .env.example .env
+```
+
+Desplegar factory, controlador de fees e imbalance guard:
 
 ```bash
 forge script script/DeployAuralis.s.sol:DeployAuralis \
@@ -93,45 +160,94 @@ forge script script/DeployAuralis.s.sol:DeployAuralis \
   --broadcast
 ```
 
-Las direcciones desplegadas se emiten como eventos del script y quedan registradas en los
-artefactos locales de Foundry.
+Crear y capitalizar un pool:
+
+```bash
+forge script script/SeedPool.s.sol:SeedPool \
+  --rpc-url http://127.0.0.1:8545 \
+  --broadcast
+```
+
+Las variables, roles y comprobaciones previas se describen en
+[docs/operations.md](./docs/operations.md).
+
+## Cliente TypeScript
+
+El cliente recibe una abstracción `PublicClient`, por lo que puede conectarse a viem, ethers o
+un adaptador RPC propio sin añadir dependencias en tiempo de ejecución:
+
+```ts
+import { AuralisClient, minimumAmount } from "./client/index.js";
+
+const auralis = new AuralisClient(publicClient, {
+  factory: "0x...",
+  lens: "0x...",
+  healthMonitor: "0x...",
+});
+
+const pool = await auralis.poolFor(token0, token1);
+if (!pool) throw new Error("Pool not found");
+
+const quote = await auralis.quoteSwap(pool, token0, 1_000_000n);
+const minimumOut = minimumAmount(quote.amountOut, 50); // 0,50 %
+const health = await auralis.health(pool);
+```
+
+Consulta [docs/integration.md](./docs/integration.md) para integrar cotizaciones, rutas,
+redenciones, monitoring y manejo de unidades.
+
+## Seguridad operativa
+
+El monitor devuelve un bitmap acumulable:
+
+| Bit | Señal                 | Interpretación                                       |
+| --: | --------------------- | ---------------------------------------------------- |
+| `0` | `PAUSED`              | Operación suspendida por owner o guardian.           |
+| `1` | `ACCOUNTING_MISMATCH` | Divergencia entre balances, reservas u obligaciones. |
+| `2` | `RESERVE_FLOOR`       | Alguna reserva activa está bajo el mínimo.           |
+| `3` | `IMBALANCE`           | La composición excede la política del pool.          |
+| `4` | `ORACLE_STALE`        | La última observación supera la edad configurada.    |
+
+Los integradores deben tratar cualquier flag como una señal bloqueante hasta completar su
+clasificación. El modelo completo está en [docs/risk-and-monitoring.md](./docs/risk-and-monitoring.md)
+y la política de reporte en [SECURITY.md](./SECURITY.md).
 
 ## Estructura
 
 ```text
+client/       Cliente TypeScript y tests de contrato RPC.
+docs/         Arquitectura, contabilidad, integración, riesgo y operaciones.
+script/       Despliegue y capitalización reproducibles.
+scripts/      Entradas de CI para contratos y cliente.
 src/
-  core/         Factory y pool de producto constante.
-  fees/         Configuracion y cotizacion de fees adaptativas.
-  interfaces/   Superficies externas del protocolo.
-  libraries/    Matematica de precision completa y transferencias seguras.
-  oracle/       Historial circular y consultas de precio.
-  periphery/    Router y vistas agregadas.
-  risk/         Validacion de composicion de reservas.
-  tokens/       Implementacion de las participaciones del pool.
-  utils/        Control de acceso y proteccion de reentrada.
+  core/       Factory, deployer y pool.
+  fees/       Tarifa adaptativa y configuración por pool.
+  interfaces/ Superficies externas estables.
+  libraries/  Precisión completa, reservas y settlement.
+  monitoring/ Señales operativas agregadas.
+  oracle/      Acumuladores y consultas TWAP.
+  periphery/  Router y lens.
+  risk/       Ancla de composición y límites.
+  tokens/     Shares ERC-20 y permisos EIP-2612.
+  types/      Structs, constantes y errores.
+  utils/      Ownership y guard de reentrada.
 tests/
-  helpers/      Infraestructura compartida de pruebas.
-  mocks/        Activos deterministas para entorno local.
-  unit/         Flujos funcionales y rechazos de politica.
-  fuzz/         Propiedades matematicas sobre rangos amplios.
-  invariant/    Reconciliacion de balances y estado persistente.
-script/         Despliegues reproducibles de Foundry.
-scripts/        Entradas de test y CI local.
+  fuzz/       Propiedades matemáticas.
+  invariant/  Reconciliación persistente.
+  unit/       Comportamiento funcional y rechazos.
 ```
 
-## Integracion
+## Documentación
 
-Los integradores deben obtener pools desde la factory y no aceptar direcciones aportadas por
-usuarios sin verificar. Toda operacion economica admite limites de salida o de activos, y los
-clientes deben fijarlos a partir de una cotizacion reciente. Los deadlines protegen frente a
-ejecucion tardia, pero no sustituyen un limite de slippage adecuado.
+- [Arquitectura](./docs/architecture.md)
+- [Modelo contable](./docs/accounting.md)
+- [Integración](./docs/integration.md)
+- [Operaciones](./docs/operations.md)
+- [Riesgo y monitoring](./docs/risk-and-monitoring.md)
+- [Política de seguridad](./SECURITY.md)
+- [Contribución](./CONTRIBUTING.md)
+- [Historial de cambios](./CHANGELOG.md)
 
-Los tokens con rebases, callbacks no estandar o comisiones sobre transferencia no forman parte
-del modelo soportado. El pool exige que el importe recibido coincida con el solicitado.
+## Licencia
 
-## Estado
-
-Auralis es un laboratorio tecnico para auditoria y validacion local. No ha sido sometido a una
-auditoria de produccion y no debe custodiar activos reales ni desplegarse sin endurecimiento,
-revision independiente y pruebas adicionales sobre la red de destino.
-
+Publicado bajo licencia [MIT](./LICENSE).

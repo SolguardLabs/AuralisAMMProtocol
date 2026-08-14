@@ -31,15 +31,18 @@ interface VmDeployAuralis {
     function stopBroadcast() external;
 }
 
-/// @notice Deploys the shared policy contracts and canonical Auralis factory.
+/// @notice Deploys the canonical Auralis contracts and read infrastructure.
 contract DeployAuralis {
     error ObservationIntervalTooLarge(uint256 interval);
+    error InvalidMaximumOracleAge(uint256 maximumAge);
     error DeploymentFailed(string artifact);
 
     event AuralisDeployed(
         address indexed factory,
         address indexed feeController,
         address indexed imbalanceGuard,
+        address lens,
+        address healthMonitor,
         address owner,
         address guardian,
         address protocolFeeRecipient
@@ -50,7 +53,13 @@ contract DeployAuralis {
 
     function run()
         external
-        returns (address factory, address feeController, address imbalanceGuard)
+        returns (
+            address factory,
+            address feeController,
+            address imbalanceGuard,
+            address lens,
+            address healthMonitor
+        )
     {
         uint256 privateKey = VM.envUint("PRIVATE_KEY");
         address broadcaster = VM.addr(privateKey);
@@ -58,9 +67,11 @@ contract DeployAuralis {
         address guardian = VM.envOr("AURALIS_GUARDIAN", admin);
         address feeRecipient = VM.envOr("PROTOCOL_FEE_RECIPIENT", admin);
         uint256 interval = VM.envOr("ORACLE_OBSERVATION_INTERVAL", uint256(60));
+        uint256 maximumOracleAge = VM.envOr("MAXIMUM_ORACLE_AGE", uint256(3600));
         if (interval == 0 || interval > type(uint32).max) {
             revert ObservationIntervalTooLarge(interval);
         }
+        if (maximumOracleAge == 0) revert InvalidMaximumOracleAge(maximumOracleAge);
 
         VM.startBroadcast(privateKey);
         imbalanceGuard = _deploy("src/risk/ImbalanceGuard.sol:ImbalanceGuard", abi.encode(admin));
@@ -73,9 +84,23 @@ contract DeployAuralis {
             "src/core/AuralisFactory.sol:AuralisFactory",
             abi.encode(admin, imbalanceGuard, feeController, feeRecipient, guardian, oracleInterval)
         );
+        lens = _deploy("src/periphery/AuralisPoolLens.sol:AuralisPoolLens", abi.encode(factory));
+        healthMonitor = _deploy(
+            "src/monitoring/AuralisHealthMonitor.sol:AuralisHealthMonitor",
+            abi.encode(factory, maximumOracleAge)
+        );
         VM.stopBroadcast();
 
-        emit AuralisDeployed(factory, feeController, imbalanceGuard, admin, guardian, feeRecipient);
+        emit AuralisDeployed(
+            factory,
+            feeController,
+            imbalanceGuard,
+            lens,
+            healthMonitor,
+            admin,
+            guardian,
+            feeRecipient
+        );
     }
 
     function _deploy(

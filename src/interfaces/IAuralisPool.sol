@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
+import { BurnQuote } from "../types/AuralisTypes.sol";
+
 /// @title Auralis pool interface
 /// @notice External surface for two-asset constant-product liquidity pools.
 interface IAuralisPool {
@@ -107,6 +109,12 @@ interface IAuralisPool {
         address owner,
         uint256 liquidity
     ) external view returns (uint256 amount0, uint256 amount1);
+
+    /// @notice Previews a redemption with its principal and fee components.
+    function previewBurnBreakdown(
+        address owner,
+        uint256 liquidity
+    ) external view returns (BurnQuote memory quote);
 
     /// @notice Supplies both assets and mints pool shares to `recipient`.
     /// @return amount0 Amount of token0 accepted by the pool.
