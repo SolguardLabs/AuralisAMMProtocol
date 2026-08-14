@@ -7,3 +7,4 @@ cd "$ROOT_DIR"
 FORGE="$(bash scripts/find-forge.sh)"
 
 "$FORGE" test --deny warnings
+npm run test:client

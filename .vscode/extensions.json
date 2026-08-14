@@ -2,8 +2,8 @@
   "recommendations": [
     "NomicFoundation.hardhat-solidity",
     "tintinweb.solidity-visual-auditor",
+    "esbenp.prettier-vscode",
     "eamodio.gitlens",
     "github.vscode-github-actions"
   ]
 }
-

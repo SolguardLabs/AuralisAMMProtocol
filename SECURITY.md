@@ -1,118 +1,154 @@
-# Politica de Seguridad
+# Política De Seguridad
 
-Auralis modela contratos con custodia y logica economica sensible. Los cambios deben preservar
-la reconciliacion entre balances fisicos, reservas contabilizadas, obligaciones de fees y
-participaciones emitidas.
+Auralis procesa activos, participaciones y obligaciones contables dentro de contratos con
+custodia. La seguridad del protocolo depende tanto de la corrección aritmética como de la
+coherencia entre pool, factory, router, oracle, controladores y sistemas operativos externos.
 
-## Alcance de Revision
+## Versiones mantenidas
 
-Quedan dentro del alcance:
+| Serie     | Estado      |
+| --------- | ----------- |
+| `1.0.x`   | Mantenida   |
+| `< 1.0.0` | Sin soporte |
 
-- Creacion y registro canonico de pools.
-- Emision, transferencia y quema de participaciones.
-- Cotizacion y liquidacion de swaps exact-input.
-- Acumulacion, checkpoint y cobro de comisiones.
-- Reserva de comisiones de protocolo.
-- Calculo de fees dinamicas.
-- Observaciones de precio y consultas TWAP.
-- Bandas de desbalance y reservas minimas.
-- Permisos administrativos, pausa y recuperacion operativa.
-- Router, lens y scripts de despliegue.
+Las correcciones se publican mediante releases firmados por tag semántico. Los integradores
+deben anclar despliegues y revisiones al commit asociado al release, no a una rama móvil.
 
-Quedan fuera del alcance operativo:
+## Reporte privado
 
-- Custodia de claves de despliegue.
-- Frontends, indexadores y servicios de cotizacion externos.
-- Puentes y wrappers de activos.
-- Tokens con rebases o comisiones sobre transferencia.
-- Oraculos externos distintos del acumulador incluido.
-- Despliegues en redes publicas.
+Utiliza un
+[GitHub Security Advisory privado](https://github.com/SolguardLabs/AuralisAMMProtocol/security/advisories/new)
+para comunicar un hallazgo. No abras un issue público con trazas, calldata, transacciones o
+secuencias reproducibles.
 
-## Invariantes Esperadas
+El reporte debe incluir:
 
-Para cada activo de un pool:
+- resumen ejecutivo y condición necesaria;
+- commit, red, contratos y funciones afectados;
+- precondiciones y capacidades requeridas;
+- secuencia mínima reproducible;
+- impacto económico y activos en riesgo;
+- test autocontenido o trazas relevantes;
+- mitigación propuesta y propiedades de regresión.
+
+## Proceso de respuesta
+
+1. Confirmación de recepción y clasificación inicial.
+2. Reproducción sobre el commit indicado.
+3. Evaluación de alcance, impacto y dependencias.
+4. Preparación de corrección y tests de regresión.
+5. Validación independiente del cambio.
+6. Publicación coordinada de release y notas técnicas.
+
+Los plazos dependen del alcance y de la necesidad de coordinación, pero los reportes con riesgo
+económico inmediato se priorizan sobre mejoras defensivas o desviaciones sin impacto material.
+
+## Modelo de confianza
+
+### Owner
+
+El owner administra componentes de política y receptores. La cuenta debe estar controlada por
+un multisig y, cuando el entorno lo permita, por un timelock con monitorización de operaciones.
+La transferencia de ownership requiere aceptación explícita del nuevo owner.
+
+### Guardian
+
+El guardian puede pausar creación y pools, pero no puede restaurar operaciones. Esta asimetría
+permite responder a incidentes sin conceder capacidad para reactivar el sistema o mover fondos.
+
+### Fee controller
+
+El controlador determina una tarifa acotada por mínimos y máximos. Una actualización debe
+validar límites globales, configuración por pool y disponibilidad de la fuente de volatilidad.
+
+### Oracle
+
+El oracle acumula precios derivados de reservas y mantiene un historial circular. Los
+consumidores deben especificar una ventana, comprobar la historia disponible y aplicar un
+límite de frescura independiente.
+
+### Activos
+
+El modelo admite ERC-20 con balances estables durante una transacción. Tokens con rebase,
+callbacks no estándar o comisión sobre transferencia requieren una integración específica y no
+deben incorporarse como si fueran activos estándar.
+
+## Invariantes de seguridad
+
+Para cada activo `i`:
 
 ```text
-reserva bruta = reserva activa + fees de LP pendientes + fees de protocolo
-saldo fisico  = reserva bruta
+grossReserve_i = activeReserve_i + pendingLPFee_i + protocolFee_i
+physicalBalance_i = grossReserve_i
 ```
 
-Adicionalmente:
+Además:
 
-- Un swap no debe reducir el producto de las reservas activas por errores de redondeo.
-- Cobrar una fee reduce por igual la reserva bruta y la obligacion correspondiente.
-- Los checkpoints de fee se actualizan antes de cada cambio de balance de shares.
-- Transferir shares conserva los derechos ya checkpointed del remitente.
-- Las salidas respetan el supply observado antes de la quema.
-- Ninguna operacion deja una reserva activa por debajo del minimo configurado.
-- Las comisiones cotizadas permanecen dentro de los limites globales y del pool.
-- Un pool canonico solo puede existir una vez por par no ordenado.
-- Las llamadas externas que mueven activos estan protegidas contra reentrada.
+- un swap no reduce el producto de reservas activas por redondeo;
+- las salidas nunca superan los límites aportados por el usuario;
+- cada cambio de balance de shares checkpointa previamente las fees;
+- un pool canónico existe una sola vez por par no ordenado;
+- router, lens y monitor rechazan pools ajenos a la factory;
+- el guardian solo puede reducir la superficie operativa;
+- las reservas activas respetan el suelo y la composición configurados;
+- las llamadas que mueven activos están protegidas contra reentrada;
+- los nonces EIP-2612 avanzan una sola vez por firma aceptada;
+- las cotizaciones no sustituyen los límites de ejecución del usuario.
 
-## Controles de Implementacion
+## Controles automatizados
 
-- Solidity `0.8.26` con comprobaciones aritmeticas nativas.
-- `FullMath.mulDiv` para productos que requieren precision intermedia de 512 bits.
-- Transferencias ERC-20 compatibles con tokens que no retornan valor.
-- Rechazo explicito de tokens que entregan un importe distinto al solicitado.
-- Guard de reentrada en entradas con movimiento de activos.
-- Ownership en dos pasos para componentes administrativos.
-- Limites superiores para fees, pendientes de protocolo y configuracion de riesgo.
-- Deadlines y slippage en la periferia.
-- Factory canonica para impedir sustitucion silenciosa de pools.
-- Historial circular acotado para evitar crecimiento de storage no controlado.
-
-## Supuestos de Confianza
-
-El propietario de la factory puede actualizar componentes de politica, pausar pools y definir
-el receptor de comisiones de protocolo. Estas capacidades deben quedar bajo un multisig o un
-timelock en cualquier despliegue persistente. El guardian de emergencia solo debe poder reducir
-la superficie operativa y no debe recibir facultades para transferir reservas de LP.
-
-El modelo asume activos ERC-20 con balances estables durante una transaccion. Los integradores
-deben verificar decimales, liquidez inicial y parametros de riesgo antes de publicar un pool.
-
-## Validacion Requerida
-
-Antes de aceptar un cambio:
+La validación de release ejecuta:
 
 ```bash
 forge fmt --check
-forge build --deny warnings
+forge build --sizes --deny warnings
 FOUNDRY_PROFILE=ci forge test --deny warnings
+npm run format:check
+npm run typecheck
+npm run test:client
 ```
 
-Los cambios en contabilidad, shares o fees deben incluir pruebas unitarias y propiedades fuzz.
-Los cambios en permisos deben cubrir tanto el camino autorizado como rechazos desde cuentas no
-privilegiadas. Los cambios en matematica deben probar limites, redondeo y valores cercanos al
-maximo del tipo utilizado.
+La suite incluye tests unitarios, fuzzing matemático, invariantes persistentes, tests del cliente
+y señales del monitor operativo. Dependabot revisa GitHub Actions y el toolchain TypeScript.
 
-## Reporte Responsable
+## Monitoring
 
-Los hallazgos deben comunicarse por el canal privado acordado con el mantenedor. Un reporte util
-incluye:
+`AuralisHealthMonitor` compara balances físicos, reservas, obligaciones, límites de riesgo y
+frescura del oracle. Cualquier flag debe interrumpir automatizaciones de liquidez hasta que un
+operador clasifique la causa.
 
-- Resumen y condicion necesaria.
-- Contratos y funciones afectados.
-- Secuencia minima de reproduccion.
-- Impacto economico y activos en riesgo.
-- Trazas o tests autocontenidos.
-- Mitigacion sugerida y propiedades de regresion.
+El monitor es una capa de detección; no sustituye:
 
-No se deben publicar pruebas de concepto, transacciones completas ni detalles explotables antes
-de coordinar la correccion con el mantenedor.
+- simulación previa de transacciones;
+- límites de slippage y deadline;
+- alertas sobre roles administrativos;
+- análisis de eventos `Sync`, `Swap`, `Mint`, `Burn` y `FeesClaimed`;
+- reconciliación independiente mediante un indexador.
 
-## Gestion de Dependencias
+## Gestión de claves y despliegues
 
-El protocolo no depende de paquetes Solidity externos en tiempo de compilacion. GitHub Actions
-y el toolchain de Foundry se revisan mediante Dependabot. Toda actualizacion del compilador o de
-la EVM objetivo debe ejecutar nuevamente la suite completa.
+- No se versionan claves, mnemónicos, endpoints privados ni archivos `.env`.
+- Los scripts leen el firmante desde variables de entorno o un signer administrado.
+- Owner, guardian y receptor de fees deben ser direcciones distintas cuando el modelo operativo
+  lo requiera.
+- Cada despliegue debe registrar chain ID, bytecode, argumentos, direcciones y commit.
+- Los cambios de compilador, EVM objetivo o parámetros requieren repetir la suite completa.
+- Un release no implica por sí solo autorización para desplegar en una red concreta.
 
-## Restricciones Operativas
+## Alcance
 
-- No usar claves reales en tests, scripts o variables versionadas.
-- No desplegar con receptores de fees o propietarios temporales.
-- No crear pools para tokens no revisados.
-- No omitir limites de slippage en automatizaciones.
-- No reutilizar observaciones locales como fuente de valoracion externa sin analizar su ventana.
-- No conectar el laboratorio a capital real.
+Dentro del alcance:
+
+- contratos bajo `src/`;
+- scripts de despliegue y capitalización;
+- cliente TypeScript y ABIs mínimos;
+- configuración de Foundry y automatización CI;
+- interacciones económicas entre pools, router, fee controller, guard y oracle.
+
+Fuera del alcance:
+
+- custodia externa de claves;
+- frontends e indexadores no incluidos;
+- puentes, wrappers y emisores de los activos;
+- disponibilidad o integridad del proveedor RPC;
+- protocolos que consuman precios Auralis sin controles propios.

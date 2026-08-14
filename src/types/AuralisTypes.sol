@@ -49,6 +49,24 @@ struct BurnQuote {
     uint256 principal1;
     uint256 realizedFee0;
     uint256 realizedFee1;
+    bool closesPosition;
+}
+
+/// @notice Operational health assessment for a pool at one block.
+struct PoolHealth {
+    address pool;
+    uint256 flags;
+    uint256 physicalBalance0;
+    uint256 physicalBalance1;
+    uint256 grossReserve0;
+    uint256 grossReserve1;
+    uint256 activeReserve0;
+    uint256 activeReserve1;
+    uint256 obligations0;
+    uint256 obligations1;
+    uint256 imbalancePpm;
+    uint256 oracleAge;
+    bool healthy;
 }
 
 /// @notice Current fee entitlement for one share holder.

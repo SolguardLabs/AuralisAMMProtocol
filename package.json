@@ -1,0 +1,23 @@
+{
+  "name": "@solguardlabs/auralis-client",
+  "version": "1.0.0",
+  "description": "Typed read client for Auralis AMM deployments",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build:client": "tsc",
+    "format": "prettier --write \"**/*.{json,md,ts,yml,yaml}\"",
+    "format:check": "prettier --check \"**/*.{json,md,ts,yml,yaml}\"",
+    "test:client": "npm run build:client && node --test dist/client/AuralisClient.test.js",
+    "typecheck": "tsc --noEmit",
+    "ci:client": "npm run format:check && npm run typecheck && npm run test:client"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "prettier": "^3.9.6",
+    "typescript": "^7.0.2"
+  }
+}

@@ -9,10 +9,10 @@ permissions:
   contents: read
 
 jobs:
-  foundry:
-    name: Foundry
+  contracts:
+    name: Contracts
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -24,5 +24,42 @@ jobs:
 
       - name: Run validation
         shell: bash
-        run: bash scripts/ci.sh
+        run: bash scripts/contracts-ci.sh
 
+  client:
+    name: TypeScript client
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run client validation
+        run: bash scripts/client-ci.sh
+
+  release-integrity:
+    name: Release integrity
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [contracts, client]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Match tag and package version
+        shell: bash
+        run: test "$GITHUB_REF_NAME" = "v$(node -p "require('./package.json').version")"
